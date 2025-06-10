@@ -1,0 +1,69 @@
+version: 2.1
+
+orbs:
+  ruby: circleci/ruby@2.1.0
+
+jobs:
+  build_and_test:
+    docker:
+      - image: cimg/ruby:3.3.0
+        environment:
+          RAILS_ENV: test
+          BUNDLE_JOBS: 3
+          BUNDLE_RETRY: 3
+    working_directory: ~/project
+    steps:
+      - checkout
+      
+      # Restore gem cache
+      - restore_cache:
+          keys:
+            - gems-v1-{{ checksum "Gemfile.lock" }}
+            - gems-v1-
+      
+      # Install dependencies
+      - run:
+          name: Bundle Install
+          command: |
+            bundle config set --local path 'vendor/bundle'
+            bundle install
+      
+      # Save gem cache
+      - save_cache:
+          key: gems-v1-{{ checksum "Gemfile.lock" }}
+          paths:
+            - vendor/bundle
+      
+      # Setup database
+      - run:
+          name: Setup Database
+          command: |
+            bundle exec rails db:create RAILS_ENV=test
+            bundle exec rails db:schema:load RAILS_ENV=test
+      
+      # Run RuboCop
+      - run:
+          name: Run RuboCop
+          command: bundle exec rubocop
+      
+      # Run Brakeman security scan
+      - run:
+          name: Run Brakeman
+          command: bundle exec brakeman --exit-on-warn --no-progress --format plain
+      
+      # Run tests
+      - run:
+          name: Run Tests
+          command: |
+            bundle exec rails test
+            bundle exec rails test:system
+      
+      # Store test results
+      - store_test_results:
+          path: test/reports
+
+workflows:
+  version: 2
+  build_and_test:
+    jobs:
+      - build_and_test
